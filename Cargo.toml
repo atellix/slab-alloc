@@ -1,12 +1,12 @@
 [package]
-name = "slab-alloc"
+name = "slab_alloc"
 version = "1.0.0"
 description = "Paged allocations for data slices"
 edition = "2018"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "slab-alloc"
+name = "slab_alloc"
 
 [dependencies]
 arrayref = "0.3.6"
