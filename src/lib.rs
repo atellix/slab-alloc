@@ -2,7 +2,7 @@ use bytemuck::{ from_bytes, from_bytes_mut, cast, cast_mut, cast_ref, cast_slice
 use num_enum::{ IntoPrimitive, TryFromPrimitive };
 use arrayref::{ array_refs, mut_array_refs };
 use static_assertions::const_assert_eq;
-//use solana_program::msg;
+use solana_program::msg;
 use murmur3::murmur3_x86_128;
 use std::{ 
 //    fmt,
@@ -49,9 +49,9 @@ impl DataNode {
 // Slab page allocator
 
 const PAGE_SIZE: usize = 16384; // bytes (16K)
-const PAGE_MAX: usize = 639; // 0..638 for 10MiB @ 16K / page
-const TYPE_MAX_PAGES: usize = 128; // Up to PAGE_MAX
-const TYPE_MAX: usize = 16;
+const PAGE_MAX: usize = 8; // 0..638 for 10MiB @ 16K / page
+const TYPE_MAX_PAGES: usize = 4; // Up to PAGE_MAX
+const TYPE_MAX: usize = 4;
 
 #[derive(Copy, Clone)]
 #[repr(packed)]
@@ -200,7 +200,7 @@ impl SlabPageAlloc {
     pub fn new(bytes: &mut [u8]) -> &mut Self {
         let len_without_table = bytes.len().checked_sub(PAGE_TABLE_SIZE).unwrap();
         let slop = len_without_table % size_of::<PageData>();
-        //msg!("slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
+        msg!("slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
         let truncated_len = bytes.len() - slop;
         let bytes = &mut bytes[..truncated_len];
         let slab: &mut Self = unsafe { &mut *(bytes as *mut [u8] as *mut SlabPageAlloc) };
@@ -306,8 +306,8 @@ impl SlabPageAlloc {
         }
         page_table.top_unused_page = page_table.top_unused_page + *pages as u16;
 
-        //let msg = format!("allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
-        //msg!(&msg);
+        let msg = format!("allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
+        msg!(&msg);
 
         Ok(*pages)
     }
