@@ -52,9 +52,9 @@ impl DataNode {
 
 // Slab page allocator
 
-const PAGE_SIZE: usize = 16384; // bytes (16K)
-const PAGE_MAX: usize = 64; // 0..638 for 10MiB @ 16K / page
-const TYPE_MAX_PAGES: usize = 8; // Up to PAGE_MAX
+const PAGE_SIZE: usize = 16384;     // bytes (16K)
+const PAGE_MAX: usize = 64;         // 0..638 for 10MiB @ 16K / page
+const TYPE_MAX_PAGES: usize = 64;   // Up to PAGE_MAX
 const TYPE_MAX: usize = 8;
 
 #[derive(Copy, Clone)]
