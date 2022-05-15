@@ -203,7 +203,7 @@ impl SlabPageAlloc {
     pub fn new(bytes: &mut [u8]) -> &mut Self {
         let len_without_table = bytes.len().checked_sub(PAGE_TABLE_SIZE).unwrap();
         let slop = len_without_table % size_of::<PageData>();
-        msg!("Atellix: slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
+        //msg!("Atellix: slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
         let truncated_len = bytes.len() - slop;
         let bytes = &mut bytes[..truncated_len];
         let slab: &mut Self = unsafe { &mut *(bytes as *mut [u8] as *mut SlabPageAlloc) };
