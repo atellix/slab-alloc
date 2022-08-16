@@ -2,7 +2,7 @@ use bytemuck::{ from_bytes, from_bytes_mut, cast, cast_mut, cast_ref, cast_slice
 use num_enum::{ IntoPrimitive, TryFromPrimitive };
 use arrayref::{ array_refs, mut_array_refs };
 use static_assertions::const_assert_eq;
-//use solana_program::msg;
+use solana_program::{ msg, pubkey::Pubkey };
 use murmur3::murmur3_x86_128;
 use std::{ 
 //    fmt,
@@ -20,15 +20,19 @@ enum DataNodeTag {
     DataNode = 1,
 }
 
+#[cfg(test)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(packed)]
 pub struct DataNode {
     tag: u8,
     data: [u64; 2],
 }
+#[cfg(test)]
 unsafe impl Zeroable for DataNode {}
+#[cfg(test)]
 unsafe impl Pod for DataNode {}
 
+#[cfg(test)]
 impl DataNode {
     #[inline]
     pub fn new(
@@ -182,7 +186,6 @@ impl TypedPageTable {
     pub fn new() -> Self {
         TypedPageTable {
             top_unused_page: 0,
-            // TODO: total pages in slab
         }
     }
 }
@@ -200,7 +203,7 @@ impl SlabPageAlloc {
     pub fn new(bytes: &mut [u8]) -> &mut Self {
         let len_without_table = bytes.len().checked_sub(PAGE_TABLE_SIZE).unwrap();
         let slop = len_without_table % size_of::<PageData>();
-        //msg!("slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
+        //msg!("Atellix: slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
         let truncated_len = bytes.len() - slop;
         let bytes = &mut bytes[..truncated_len];
         let slab: &mut Self = unsafe { &mut *(bytes as *mut [u8] as *mut SlabPageAlloc) };
@@ -306,8 +309,8 @@ impl SlabPageAlloc {
         }
         page_table.top_unused_page = page_table.top_unused_page + *pages as u16;
 
-        //let msg = format!("allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
-        //msg!(&msg);
+        let msg = format!("Atellix: allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
+        msg!(&msg);
 
         Ok(*pages)
     }
@@ -418,6 +421,7 @@ struct InnerNode {
     key: u128,
     prefix_len: u32,
     children: [u32; 2],
+    _padding: [u32; 6],
 }
 unsafe impl Zeroable for InnerNode {}
 unsafe impl Pod for InnerNode {}
@@ -434,9 +438,9 @@ impl InnerNode {
 #[repr(packed)]
 pub struct LeafNode {
     tag: u32,
+    slot: u32,
     key: u128,
-    data: u32,
-    _padding: [u32; 2],
+    owner: [u8; 32],
 }
 unsafe impl Zeroable for LeafNode {}
 unsafe impl Pod for LeafNode {}
@@ -445,13 +449,14 @@ impl LeafNode {
     #[inline]
     pub fn new(
         key: u128,
-        data: u32,
+        slot: u32,
+        owner: &Pubkey,
     ) -> Self {
         LeafNode {
             tag: NodeTag::LeafNode.into(),
-            key,
-            data,
-            _padding: Zeroable::zeroed(),
+            key: key,
+            slot: slot,
+            owner: owner.to_bytes(),
         }
     }
 
@@ -461,8 +466,18 @@ impl LeafNode {
     }
 
     #[inline]
-    pub fn data(&self) -> u32 {
-        self.data
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    #[inline]
+    pub fn set_slot(&mut self, new_slot: u32) {
+        self.slot = new_slot;
+    }
+
+    #[inline]
+    pub fn owner(&self) -> Pubkey {
+        Pubkey::new_from_array(self.owner)
     }
 }
 
@@ -472,7 +487,7 @@ impl LeafNode {
 struct FreeNode {
     tag: u32,
     next: u32,
-    _padding: [u32; 6],
+    _padding: [u32; 12],
 }
 unsafe impl Zeroable for FreeNode {}
 unsafe impl Pod for FreeNode {}
@@ -485,7 +500,7 @@ const fn _const_max(a: usize, b: usize) -> usize {
 const _INNER_NODE_SIZE: usize = size_of::<InnerNode>();
 const _LEAF_NODE_SIZE: usize = size_of::<LeafNode>();
 const _FREE_NODE_SIZE: usize = size_of::<FreeNode>();
-const _NODE_SIZE: usize = 32;
+const _NODE_SIZE: usize = 56;
 
 const _INNER_NODE_ALIGN: usize = align_of::<InnerNode>();
 const _LEAF_NODE_ALIGN: usize = align_of::<LeafNode>();
@@ -505,7 +520,7 @@ const_assert_eq!(_NODE_ALIGN, _FREE_NODE_ALIGN);
 #[allow(dead_code)]
 pub struct AnyNode {
     tag: u32,
-    data: [u32; 7],
+    data: [u32; 13],
 }
 unsafe impl Zeroable for AnyNode {}
 unsafe impl Pod for AnyNode {}
@@ -690,7 +705,7 @@ impl CritMapView<AnyNode> for CritMap<'_> {
         };
 
         let len = CritMapData::len(self.slab, self.type_id);
-        let mut header = *CritMapData::header_mut(self.slab, self.type_id);
+        let mut header = *CritMapData::header(self.slab, self.type_id);
 
         if header.free_list_len == 0 {
             if header.bump_index as usize == len {
@@ -757,6 +772,7 @@ impl CritMapView<AnyNode> for CritMap<'_> {
 #[derive(Debug)]
 pub enum SlabTreeError {
     OutOfSpace,
+    NotFound,
 }
 
 impl CritMap<'_> {
@@ -810,10 +826,24 @@ impl CritMap<'_> {
     }
 
     #[inline]
+    pub fn get_min(&self) -> Option<&LeafNode> {
+        let handle: NodeHandle = self.find_min()?;
+        let leaf: &LeafNode = self.get(handle).unwrap().as_leaf().unwrap();
+        Some(leaf)
+    }
+
+    #[inline]
+    pub fn get_max(&self) -> Option<&LeafNode> {
+        let handle: NodeHandle = self.find_max()?;
+        let leaf: &LeafNode = self.get(handle).unwrap().as_leaf().unwrap();
+        Some(leaf)
+    }
+
+    #[inline]
     pub fn insert_leaf(
         &mut self,
         new_leaf: &LeafNode,
-    ) -> Result<(NodeHandle, Option<LeafNode>), SlabTreeError> {
+    ) -> Result<Option<LeafNode>, SlabTreeError> {
         let mut root: NodeHandle = match self.root() {
             Some(h) => h,
             None => {
@@ -822,9 +852,11 @@ impl CritMap<'_> {
                     Ok(handle) => {
                         self.header_mut().root_node = handle;
                         self.header_mut().leaf_count = 1;
-                        return Ok((handle, None));
+                        return Ok(None);
                     }
-                    Err(()) => return Err(SlabTreeError::OutOfSpace),
+                    Err(()) => {
+                        return Err(SlabTreeError::OutOfSpace)
+                    },
                 }
             }
         };
@@ -836,7 +868,7 @@ impl CritMap<'_> {
                 if let Some(NodeRef::Leaf(&old_root_as_leaf)) = root_contents.case() {
                     // clobber the existing leaf
                     *self.get_mut(root).unwrap() = *new_leaf.as_ref();
-                    return Ok((root, Some(old_root_as_leaf)));
+                    return Ok(Some(old_root_as_leaf));
                 }
             }
             let shared_prefix_len: u32 = (root_key ^ new_leaf.key).leading_zeros();
@@ -857,9 +889,11 @@ impl CritMap<'_> {
             let new_leaf_crit_bit = (crit_bit_mask & new_leaf.key) != 0;
             let old_root_crit_bit = !new_leaf_crit_bit;
 
-            let new_leaf_handle = self
-                .insert(new_leaf.as_ref())
-                .map_err(|()| SlabTreeError::OutOfSpace)?;
+            let new_leaf_res = self.insert(new_leaf.as_ref());
+            if new_leaf_res.is_err() {
+                return Err(SlabTreeError::OutOfSpace);
+            }
+            let new_leaf_handle = new_leaf_res.unwrap();
             let moved_root_handle = match self.insert(&root_contents) {
                 Ok(h) => h,
                 Err(()) => {
@@ -874,13 +908,13 @@ impl CritMap<'_> {
                 prefix_len: shared_prefix_len,
                 key: new_leaf.key,
                 children: [0; 2],
-                //_padding: Zeroable::zeroed(),
+                _padding: Zeroable::zeroed(),
             };
 
             new_root.children[new_leaf_crit_bit as usize] = new_leaf_handle;
             new_root.children[old_root_crit_bit as usize] = moved_root_handle;
             self.header_mut().leaf_count += 1;
-            return Ok((new_leaf_handle, None));
+            return Ok(None);
         }
     }
 
@@ -897,8 +931,33 @@ impl CritMap<'_> {
             match node_ref.case().unwrap() {
                 NodeRef::Leaf(_) => break Some(node_ref.as_leaf().unwrap()),
                 NodeRef::Inner(inner) => {
-                    let crit_bit_mask = (1u128 << 127) >> node_prefix_len;
-                    let _search_key_crit_bit = (search_key & crit_bit_mask) != 0;
+                    //let crit_bit_mask = (1u128 << 127) >> node_prefix_len;
+                    //let _search_key_crit_bit = (search_key & crit_bit_mask) != 0;
+                    node_handle = inner.walk_down(search_key).0;
+                    continue;
+                }
+            }
+        }
+    }
+
+    pub fn get_key_mut(&mut self, search_key: u128) -> Option<&mut LeafNode> {
+        let mut node_handle: NodeHandle = self.root()?;
+        loop {
+            let node_ref = self.get(node_handle).unwrap();
+            let node_prefix_len = node_ref.prefix_len();
+            let node_key = node_ref.key().unwrap();
+            let common_prefix_len = (search_key ^ node_key).leading_zeros();
+            if common_prefix_len < node_prefix_len {
+                return None;
+            }
+            match node_ref.case().unwrap() {
+                NodeRef::Leaf(_) => {
+                    let mut_ref = self.get_mut(node_handle).unwrap();
+                    break Some(mut_ref.as_leaf_mut().unwrap())
+                },
+                NodeRef::Inner(inner) => {
+                    //let crit_bit_mask = (1u128 << 127) >> node_prefix_len;
+                    //let _search_key_crit_bit = (search_key & crit_bit_mask) != 0;
                     node_handle = inner.walk_down(search_key).0;
                     continue;
                 }
@@ -919,13 +978,71 @@ impl CritMap<'_> {
             match node_ref.case().unwrap() {
                 NodeRef::Leaf(_) => break Some(node_handle),
                 NodeRef::Inner(inner) => {
-                    let crit_bit_mask = (1u128 << 127) >> node_prefix_len;
-                    let _search_key_crit_bit = (search_key & crit_bit_mask) != 0;
+                    //let crit_bit_mask = (1u128 << 127) >> node_prefix_len;
+                    //let _search_key_crit_bit = (search_key & crit_bit_mask) != 0;
                     node_handle = inner.walk_down(search_key).0;
                     continue;
                 }
             }
         }
+    }
+
+    fn branch_min_max(&self, start: NodeHandle, stack: &mut Vec<NodeHandle>, find_max: bool) -> NodeHandle {
+        let mut item = start;
+        loop {
+            let contents = self.get(item).unwrap();
+            match contents.case().unwrap() {
+                NodeRef::Inner(&InnerNode { children, .. }) => {
+                    stack.push(item);
+                    item = children[if find_max { 1 } else { 0 }];
+                    continue;
+                }
+                _ => return item,
+            }
+        }
+    }
+
+    fn predicate_min_max<F: FnMut(&SlabPageAlloc, &LeafNode) -> bool>(&self,
+        mut predicate: F,
+        find_max: bool,
+    ) -> Option<&LeafNode> {
+        // Stack-based min/max search
+        let mut stack = Vec::new();
+        let root: NodeHandle = self.root()?;
+        // Populate stack
+        let mut found = self.branch_min_max(root, &mut stack, find_max);
+        loop {
+            // Check if top satisfies predicate
+            let node_ref = self.get(found).unwrap();
+            let leaf = node_ref.as_leaf().unwrap();
+            if predicate(self.slab, leaf) {
+                return Some(leaf);
+            }
+            // If the stack is empty then nothing matched
+            if stack.len() == 0 {
+                return None;
+            }
+            // Otherwise backtrack up the stack, proceed down the other branch, and try again
+            let top = stack.pop().unwrap();
+            let contents = self.get(top).unwrap();
+            found = match contents.case().unwrap() {
+                NodeRef::Inner(&InnerNode { children, .. }) => {
+                    let other_branch = children[if find_max { 0 } else { 1 }]; // Reversed to backtrack
+                    self.branch_min_max(other_branch, &mut stack, find_max) // Try the other branch
+                },
+                _ => unreachable!(),
+            };
+        }
+    }
+
+    #[inline]
+    pub fn predicate_min<F: FnMut(&SlabPageAlloc, &LeafNode) -> bool>(&self, predicate: F) -> Option<&LeafNode> {
+        self.predicate_min_max(predicate, false)
+    }
+
+    #[inline]
+    pub fn predicate_max<F: FnMut(&SlabPageAlloc, &LeafNode) -> bool>(&self, predicate: F) -> Option<&LeafNode> {
+        self.predicate_min_max(predicate, true)
     }
 
     /* pub(crate) fn find_by<F: Fn(&LeafNode) -> bool>(
@@ -1129,6 +1246,7 @@ impl CritMap<'_> {
 #[derive(Copy, Clone)]
 #[repr(packed)]
 pub struct SlabVec {
+    free_top: u32,
     next_index: u32,
 }
 unsafe impl Zeroable for SlabVec {}
@@ -1138,6 +1256,7 @@ impl SlabVec {
     #[inline]
     pub fn new() -> Self {
         SlabVec {
+            free_top: 0,
             next_index: 0,
         }
     }
@@ -1146,6 +1265,14 @@ impl SlabVec {
         let next = self.next_index;
         self.next_index = self.next_index.checked_add(1).expect("Overflow");
         next
+    }
+
+    pub fn free_top(&self) -> u32 {
+        self.free_top
+    }
+
+    pub fn set_free_top(&mut self, new_free: u32) {
+        self.free_top = new_free
     }
 
     pub fn len(&self) -> u32 {
