@@ -2,7 +2,8 @@ use bytemuck::{ from_bytes, from_bytes_mut, cast, cast_mut, cast_ref, cast_slice
 use num_enum::{ IntoPrimitive, TryFromPrimitive };
 use arrayref::{ array_refs, mut_array_refs };
 use static_assertions::const_assert_eq;
-use solana_program::{ msg, pubkey::Pubkey };
+//use solana_program::{ msg, pubkey::Pubkey };
+use solana_program::{ pubkey::Pubkey };
 use murmur3::murmur3_x86_128;
 use std::{ 
 //    fmt,
@@ -309,8 +310,8 @@ impl SlabPageAlloc {
         }
         page_table.top_unused_page = page_table.top_unused_page + *pages as u16;
 
-        let msg = format!("Atellix: allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
-        msg!(&msg);
+        //let msg = format!("Atellix: allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
+        //msg!(&msg);
 
         Ok(*pages)
     }
