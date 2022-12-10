@@ -54,8 +54,8 @@ impl DataNode {
 
 const PAGE_SIZE: usize = 16384; // bytes (16K)
 const PAGE_MAX: usize = 639; // 0..638 for 10MiB @ 16K / page
-const TYPE_MAX_PAGES: usize = 128; // Up to PAGE_MAX
-const TYPE_MAX: usize = 16;
+const TYPE_MAX_PAGES: usize = 16; // Up to PAGE_MAX
+const TYPE_MAX: usize = 4;
 
 #[derive(Copy, Clone)]
 #[repr(packed)]
