@@ -2,7 +2,8 @@ use bytemuck::{ from_bytes, from_bytes_mut, cast, cast_mut, cast_ref, cast_slice
 use num_enum::{ IntoPrimitive, TryFromPrimitive };
 use arrayref::{ array_refs, mut_array_refs };
 use static_assertions::const_assert_eq;
-use solana_program::{ msg, pubkey::Pubkey };
+//use solana_program::{ msg, pubkey::Pubkey };
+use solana_program::{ pubkey::Pubkey };
 use murmur3::murmur3_x86_128;
 use std::{ 
 //    fmt,
@@ -203,7 +204,7 @@ impl SlabPageAlloc {
     pub fn new(bytes: &mut [u8]) -> &mut Self {
         let len_without_table = bytes.len().checked_sub(PAGE_TABLE_SIZE).unwrap();
         let slop = len_without_table % size_of::<PageData>();
-        msg!("Atellix: slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
+        //msg!("Atellix: slab header size: {} - slop: {}", PAGE_TABLE_SIZE, slop);
         let truncated_len = bytes.len() - slop;
         let bytes = &mut bytes[..truncated_len];
         let slab: &mut Self = unsafe { &mut *(bytes as *mut [u8] as *mut SlabPageAlloc) };
@@ -296,7 +297,7 @@ impl SlabPageAlloc {
         }
         type_spec.set_alloc_items(items);
 
-        let mut last: u16 = 0;
+        //let mut last: u16 = 0;
         for i in 0..*pages {
             let page = page_table.top_unused_page + i as u16;
             unsafe {
@@ -305,12 +306,12 @@ impl SlabPageAlloc {
             //println!("Allocate Page: {}", page);
             //msg!("allocate page: {}", page);
             type_spec.set_page(i, page as u16);
-            last = page + 1;
+            //last = page + 1;
         }
         page_table.top_unused_page = page_table.top_unused_page + *pages as u16;
 
-        let msg = format!("Atellix: allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
-        msg!(&msg);
+        /*let msg = format!("Atellix: allocate {} - {} items - {} pages - {} total pages", type_id, items, *pages, last);
+        msg!(&msg);*/
 
         Ok(*pages)
     }
